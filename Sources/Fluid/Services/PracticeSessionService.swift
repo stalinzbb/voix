@@ -211,6 +211,16 @@ final class PracticeSessionService: ObservableObject {
         self.coachingTask?.cancel()
     }
 
+    /// Loads a stored session back into the detail view, so past feedback is
+    /// reachable after "New session" instead of trapped in the JSON file.
+    func showSession(_ session: PracticeSession) {
+        // Only when settled: swapping the display out from under a recording or a
+        // running pipeline would have the old pipeline overwrite it at the end.
+        guard self.phase != .recording, !self.phase.isBusy else { return }
+        self.currentSession = session
+        self.phase = .done
+    }
+
     /// Clears the finished session so the view returns to its resting state.
     func reset() {
         guard !self.phase.isBusy else { return }

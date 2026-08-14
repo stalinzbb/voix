@@ -460,16 +460,64 @@ struct PracticeView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 } else {
-                    // ponytail: Text's markdown init renders inline styling but not
-                    // headings or lists. Good enough for v1; swap for a real markdown
-                    // view if the coach's structure starts mattering visually.
-                    Text(LocalizedStringKey(session.feedback))
-                        .font(.body)
+                    // The coach is instructed to answer in six markdown sections;
+                    // Text's markdown init drops headings and list structure, which
+                    // flattened the whole critique into a wall of body text.
+                    self.markdownBlocks(session.feedback)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
+    }
+
+    // MARK: - Markdown
+
+    /// ponytail: line-based markdown — headings, bullets, inline styling via
+    /// AttributedString. LLM output is line-oriented, so this covers what the
+    /// coach actually emits; swap for a real markdown view if it ever emits
+    /// tables or nested lists.
+    private func markdownBlocks(_ markdown: String) -> some View {
+        let lines = markdown.components(separatedBy: "\n")
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                self.markdownLine(line)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func markdownLine(_ line: String) -> some View {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            Spacer().frame(height: 2)
+        } else if trimmed.hasPrefix("### ") {
+            Text(Self.inlineMarkdown(String(trimmed.dropFirst(4))))
+                .font(.headline)
+                .padding(.top, 4)
+        } else if trimmed.hasPrefix("## ") {
+            Text(Self.inlineMarkdown(String(trimmed.dropFirst(3))))
+                .font(.title3.weight(.semibold))
+                .padding(.top, 6)
+        } else if trimmed.hasPrefix("# ") {
+            Text(Self.inlineMarkdown(String(trimmed.dropFirst(2))))
+                .font(.title2.weight(.semibold))
+                .padding(.top, 6)
+        } else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
+            HStack(alignment: .top, spacing: 6) {
+                Text("•")
+                Text(Self.inlineMarkdown(String(trimmed.dropFirst(2))))
+            }
+            .font(.body)
+        } else {
+            Text(Self.inlineMarkdown(trimmed))
+                .font(.body)
+        }
+    }
+
+    /// Bold/italic/code within a line; the raw line if it isn't valid markdown.
+    private static func inlineMarkdown(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text)) ?? AttributedString(text)
     }
 
     private func copyButton(label: String, text: String) -> some View {
@@ -512,17 +560,33 @@ struct PracticeView: View {
 
     private func pastSessionRow(_ session: PracticeSession) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(session.previewText.isEmpty ? "(no transcript)" : session.previewText)
-                    .font(.callout)
-                    .lineLimit(2)
+            // The row body opens the session — before this, feedback a user paid an
+            // LLM for became unreachable the moment they pressed "New session".
+            Button {
+                self.service.showSession(session)
+            } label: {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(session.previewText.isEmpty ? "(no transcript)" : session.previewText)
+                            .font(.callout)
+                            .lineLimit(2)
 
-                Text("\(session.relativeTimeString) · \(session.formattedDuration) · " + Self.rowMetricsSummary(session.metrics))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                        Text("\(session.relativeTimeString) · \(session.formattedDuration) · " + Self.rowMetricsSummary(session.metrics))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .padding(.top, 4)
+                }
+                .contentShape(Rectangle())
             }
-
-            Spacer()
+            .buttonStyle(.plain)
+            .disabled(self.service.isRecording || self.service.phase.isBusy)
 
             Button {
                 self.store.delete(id: session.id)
