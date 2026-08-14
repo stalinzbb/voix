@@ -146,6 +146,15 @@ struct PracticeView: View {
                 }
                 .controlSize(.large)
             }
+
+            // The session is already saved at this point; canceling only abandons
+            // the LLM call, so this is safe to offer prominently.
+            if self.service.phase == .coaching {
+                Button("Cancel") {
+                    self.service.cancelCoaching()
+                }
+                .controlSize(.large)
+            }
         }
     }
 
@@ -439,9 +448,15 @@ struct PracticeView: View {
                     .font(.callout)
                     .foregroundStyle(self.theme.palette.warning)
 
-                    Text("The transcript and delivery metrics above were still saved. Configure an AI provider in AI Enhancement to get written feedback.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // The provider tip only when it is actually the fix — a canceled
+                    // call or a silent recording should not send anyone to settings.
+                    Text(
+                        DictationAIPostProcessingGate.isProviderConfigured()
+                            ? "The transcript and delivery metrics above were still saved."
+                            : "The transcript and delivery metrics above were still saved. Configure an AI provider in AI Enhancement to get written feedback."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 } else {
                     // ponytail: Text's markdown init renders inline styling but not
                     // headings or lists. Good enough for v1; swap for a real markdown

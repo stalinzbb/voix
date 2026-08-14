@@ -194,6 +194,7 @@ struct ContentView: View {
     @StateObject private var rewriteModeService = RewriteModeService()
     @EnvironmentObject private var menuBarManager: MenuBarManager
     @ObservedObject private var settings = SettingsStore.shared
+    @ObservedObject private var practiceService = PracticeSessionService.shared
 
     /// Computed properties to access shared services from AppServices container
     /// This maintains backward compatibility with the existing code while
@@ -1175,6 +1176,18 @@ struct ContentView: View {
 
             Section {
                 self.sidebarNavigationLink(.practice, title: "Practice", systemImage: "mic.circle.fill")
+                    // A recording that outlives the Practice screen must stay visible
+                    // somewhere; this dot is the only indicator once the user navigates
+                    // away (dictation hotkeys no-op while practice owns the recorder).
+                    .overlay(alignment: .trailing) {
+                        if self.practiceService.isRecording {
+                            Circle()
+                                .fill(.red)
+                                .frame(width: 8, height: 8)
+                                .padding(.trailing, 6)
+                                .accessibilityLabel("Practice recording in progress")
+                        }
+                    }
                 // ponytail: Command Mode (voice-driven shell agent) is out of scope for a
                 // speech-practice app. Link removed; CommandModeService and its .commandMode
                 // sidebar case stay dormant so upstream changes still merge cleanly.

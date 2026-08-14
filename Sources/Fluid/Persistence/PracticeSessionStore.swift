@@ -102,6 +102,18 @@ final class PracticeSessionStore: ObservableObject {
         self.save()
     }
 
+    /// Swaps in the finished version of a session that was persisted before its
+    /// coaching call. Falls back to `add` if the provisional entry is gone
+    /// (pruned by the cap, or deleted by the user mid-coaching).
+    func replace(_ session: PracticeSession) {
+        guard let index = self.sessions.firstIndex(where: { $0.id == session.id }) else {
+            self.add(session)
+            return
+        }
+        self.sessions[index] = session
+        self.save()
+    }
+
     func delete(id: UUID) {
         self.sessions.removeAll { $0.id == id }
         self.save()
