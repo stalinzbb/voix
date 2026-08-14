@@ -384,6 +384,55 @@ final class SpeechAnalysisServiceTests: XCTestCase {
         XCTAssertEqual(span, metrics.durationSeconds, accuracy: 1)
     }
 
+    /// Energy frames are 20ms and pitch windows 50ms, but there is exactly one
+    /// `contourIntervalSeconds` — so both contours must share its grid. Short
+    /// recordings are the regression case: below ~12s the pitch track used to
+    /// escape downsampling and plot at the wrong time scale, out from under its
+    /// own pause bands.
+    func testPitchAndEnergyContoursShareOneTimeGrid() {
+        for seconds in [3.0, 8.0, 30.0] {
+            let metrics = SpeechAnalysisService.analyze(
+                pcm: self.speechShapedNoise(seconds: seconds, seed: 7),
+                sampleRate: self.sampleRate,
+                rawTranscript: "",
+                fillerWords: []
+            )
+
+            XCTAssertEqual(
+                metrics.pitchContour.count,
+                metrics.energyContour.count,
+                "contours diverge at \(seconds)s"
+            )
+            let span = metrics.contourIntervalSeconds * Double(metrics.pitchContour.count)
+            XCTAssertEqual(span, metrics.durationSeconds, accuracy: 1, "span wrong at \(seconds)s")
+        }
+    }
+
+    /// Resampling buckets must average voiced windows only. A bucket holding one
+    /// 150 Hz window and one unvoiced zero used to average to 75 Hz — a pitch that
+    /// was never spoken — dragging every phrase boundary toward zero and charting
+    /// the speaker as more monotone than they are.
+    func testPitchResamplingNeverInventsIntermediatePitches() {
+        var pcm: [Float] = []
+        for _ in 0..<30 {
+            pcm += self.sine(frequency: 150, seconds: 0.5)
+            pcm += self.silence(seconds: 0.5)
+        }
+
+        let metrics = SpeechAnalysisService.analyze(
+            pcm: pcm,
+            sampleRate: self.sampleRate,
+            rawTranscript: "",
+            fillerWords: []
+        )
+
+        XCTAssertTrue(metrics.pitchContour.contains { $0 > 0 }, "expected voiced buckets")
+        XCTAssertTrue(metrics.pitchContour.contains(0), "unvoiced gaps must stay 0")
+        for hz in metrics.pitchContour where hz > 0 {
+            XCTAssertGreaterThan(hz, 100, "bucket averaged unvoiced zeros into a voiced pitch")
+        }
+    }
+
     // MARK: - Signal helpers
 
     private func sine(frequency: Double, seconds: Double, amplitude: Float = 0.5) -> [Float] {

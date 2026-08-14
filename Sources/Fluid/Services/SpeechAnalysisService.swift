@@ -344,6 +344,12 @@ nonisolated enum SpeechAnalysisService {
 
         let speakingLevels = zip(levelsDb, isSpeech).filter(\.1).map(\.0)
 
+        // One time grid for both contours. Energy frames (20 ms) and pitch windows
+        // (50 ms) have different native rates; publishing them at different lengths
+        // against the single contourIntervalSeconds plotted short recordings' pitch
+        // lines at the wrong time scale, out from under their own pause bands.
+        let energyContour = self.downsample(levelsDb)
+
         return DeliveryMetrics(
             durationSeconds: duration,
             speechSpanSeconds: speechSpanSeconds,
@@ -362,11 +368,11 @@ nonisolated enum SpeechAnalysisService {
             meanPitchHz: self.mean(voiced),
             pitchRangeHz: voiced.isEmpty ? 0 : (voiced.max()! - voiced.min()!),
             pitchStdDevHz: self.standardDeviation(voiced),
-            pitchContour: self.downsample(pitches),
+            pitchContour: self.resamplePitch(pitches, toCount: energyContour.count),
             meanLevelDb: self.mean(speakingLevels),
             dynamicRangeDb: self.percentileSpread(speakingLevels),
             levelStdDevDb: self.standardDeviation(speakingLevels),
-            energyContour: self.downsample(levelsDb),
+            energyContour: energyContour,
             contourIntervalSeconds: self.contourInterval(
                 frameCount: levelsDb.count,
                 frameDuration: frameDuration
@@ -643,9 +649,9 @@ nonisolated enum SpeechAnalysisService {
         return self.percentile(sorted, 0.95) - self.percentile(sorted, 0.05)
     }
 
-    /// Bucket-average down to a plottable number of points. Averaging rather than
-    /// striding so a downsampled pitch contour keeps unvoiced gaps visible instead
-    /// of aliasing them away.
+    /// Bucket-average down to a plottable number of points. Energy only — the
+    /// pitch track goes through `resamplePitch`, because plain averaging would
+    /// mix unvoiced zeros into voiced buckets.
     private static func downsample(_ values: [Double]) -> [Double] {
         guard values.count > self.maxContourPoints else { return values }
         let bucketSize = Double(values.count) / Double(self.maxContourPoints)
@@ -654,6 +660,24 @@ nonisolated enum SpeechAnalysisService {
             let start = Int(Double(index) * bucketSize)
             let end = min(values.count, max(start + 1, Int(Double(index + 1) * bucketSize)))
             return self.mean(Array(values[start..<end]))
+        }
+    }
+
+    /// Puts the pitch track on the energy contour's time grid. Buckets average
+    /// voiced windows only: averaging a 200 Hz window with an unvoiced zero yields
+    /// 100 Hz — a pitch that was never spoken — and drags every phrase boundary
+    /// toward zero, making the speaker chart as more monotone than they are. A
+    /// bucket with no voiced windows stays 0 (unvoiced).
+    private static func resamplePitch(_ pitches: [Double], toCount count: Int) -> [Double] {
+        guard !pitches.isEmpty, count > 0 else { return [] }
+        guard pitches.count != count else { return pitches }
+        let bucketSize = Double(pitches.count) / Double(count)
+
+        return (0..<count).map { index in
+            let start = Int(Double(index) * bucketSize)
+            let end = min(pitches.count, max(start + 1, Int(Double(index + 1) * bucketSize)))
+            let voiced = pitches[start..<end].filter { $0 > 0 }
+            return voiced.isEmpty ? 0 : self.mean(Array(voiced))
         }
     }
 
