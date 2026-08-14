@@ -356,6 +356,13 @@ final class PracticeSessionService: ObservableObject {
 
     // MARK: - Prompt
 
+    /// Single source for the pace norm quoted by both the coach prompt and
+    /// PracticeView's metric-card label. They were once two hand-written copies
+    /// and drifted: the card called 101 WPM "conversational range" while the
+    /// coach beside it called the same number slow.
+    static let paceRange: ClosedRange<Double> = 100 ... 130
+    static let paceRangeText = "\(Int(paceRange.lowerBound))–\(Int(paceRange.upperBound))"
+
     /// ponytail: hardcoded for v1. Promote to an editable setting once it has been
     /// iterated against real recordings — an editable prompt that is still wrong is
     /// just a wrong prompt with more surface area.
@@ -377,7 +384,7 @@ final class PracticeSessionService: ObservableObject {
     Name vague or unsupported claims.
     4. **Delivery** — interpret the measured numbers, citing the actual measurements.
 
-    Reference points. Overall speaking rate: 100–130 WPM is the target for a practiced \
+    Reference points. Overall speaking rate: \(paceRangeText) WPM is the target for a practiced \
     talk. A value inside that range is fine — say so and move on rather than reaching \
     for a criticism. Articulation rate well above overall WPM means time is going into \
     pauses rather than into fast talking. Roughly 60–75% of the span being voiced is \

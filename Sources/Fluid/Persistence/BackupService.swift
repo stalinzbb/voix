@@ -113,6 +113,9 @@ struct AppBackupDocument: Codable, Equatable {
     // Optional so backups created before pronunciation matching still decode.
     // swiftlint:disable:next discouraged_optional_collection
     let pronunciationProfiles: [PronunciationDictionaryProfile]?
+    // Optional so backups created before practice sessions still decode.
+    // swiftlint:disable:next discouraged_optional_collection
+    let practiceSessions: [PracticeSession]?
 }
 
 enum BackupServiceError: LocalizedError {
@@ -145,7 +148,8 @@ final class BackupService {
             promptProfiles: SettingsStore.shared.dictationPromptProfiles,
             appPromptBindings: SettingsStore.shared.appPromptBindings,
             transcriptionHistory: TranscriptionHistoryStore.shared.makeBackupPayload(),
-            pronunciationProfiles: pronunciationProfiles
+            pronunciationProfiles: pronunciationProfiles,
+            practiceSessions: PracticeSessionStore.shared.sessions
         )
     }
 
@@ -186,6 +190,11 @@ final class BackupService {
             appPromptBindings: document.appPromptBindings
         )
         TranscriptionHistoryStore.shared.restore(from: document.transcriptionHistory)
+        // nil means the backup predates practice sessions — leave what's on disk,
+        // since that backup says nothing about them.
+        if let practiceSessions = document.practiceSessions {
+            PracticeSessionStore.shared.restore(from: practiceSessions)
+        }
         NotificationCenter.default.post(name: .settingsBackupDidRestore, object: nil)
     }
 

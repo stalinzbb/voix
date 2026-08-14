@@ -1205,7 +1205,9 @@ struct ContentView: View {
 
             Section {
                 self.sidebarNavigationLink(.welcome, title: "Getting Started", systemImage: "house.fill")
-                self.sidebarNavigationLink(.changelog, title: "Change logs", systemImage: "doc.text.magnifyingglass")
+                // Change logs link removed: ChangelogView fetches release notes from
+                // upstream's GitHub repo, so it showed another product's changelog.
+                // Restore it (with the fork's repo) once Voix publishes releases.
                 // ponytail: upstream's Feedback screen is deleted, not dormant. It POSTed
                 // the user's email plus the last 30 debug-log lines to altic.dev, and an
                 // unreachable exfiltration path still ships the endpoint in the binary.

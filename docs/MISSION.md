@@ -56,6 +56,12 @@ run shell commands from voice, or live in a global hotkey overlay. That machiner
 mostly left dormant rather than deleted — deleting it is churn with no functional payoff, and
 dormant code merges cleanly with upstream.
 
+The refinement practice has taught us: **dormant is fine unless it's reachable or phones home.** A
+feature with no UI entry point and no default hotkey costs nothing; one that ships an upstream
+endpoint (the Feedback screen), owns a global shortcut on day one (rewrite mode's old default), or
+advertises itself in Settings (Command Mode's row) is not dormant, and the small diff to disarm or
+delete it beats the merge-cleanliness argument. Judge by reachability, not by line count.
+
 Explicitly deferred, with the reason:
 
 | Deferred | Until |

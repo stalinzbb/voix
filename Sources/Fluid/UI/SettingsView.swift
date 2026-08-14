@@ -716,35 +716,10 @@ struct SettingsView: View {
                                     self.dictationPromptPicker(for: .primary)
                                     Divider().opacity(0.2).padding(.vertical, 4)
 
-                                    self.shortcutRow(
-                                        content: .init(
-                                            icon: "terminal.fill",
-                                            iconColor: .secondary,
-                                            title: "Command Mode",
-                                            description: "Execute voice commands"
-                                        ),
-                                        shortcut: self.commandModeShortcut,
-                                        isRecording: self.isRecording(.command),
-                                        isAnyRecordingActive: self.isRecordingAnyShortcut,
-                                        recordingMessage: self.isRecording(.command) ? self.shortcutRecordingMessage : nil,
-                                        isEnabled: self.$commandModeShortcutEnabled,
-                                        requiresShortcutToEnable: true,
-                                        onChangePressed: {
-                                            DebugLogger.shared.debug("Starting to record new command mode shortcut", source: "SettingsView")
-                                            self.shortcutRecordingMessage = nil
-                                            self.activeShortcutRecordingTarget = .command
-                                        },
-                                        onRemovePressed: {
-                                            if self.activeShortcutRecordingTarget == .command {
-                                                self.shortcutRecordingMessage = nil
-                                                self.activeShortcutRecordingTarget = nil
-                                            }
-                                            self.commandModeShortcut = nil
-                                            self.commandModeShortcutEnabled = false
-                                        }
-                                    )
-                                    Divider().opacity(0.2).padding(.vertical, 4)
-
+                                    // Command Mode row removed with its sidebar link: a
+                                    // voice-driven shell agent (/bin/zsh via
+                                    // TerminalService) has no place in a speech-coaching
+                                    // app's settings. The service stays dormant.
                                     self.shortcutRow(
                                         content: .init(
                                             icon: "pencil.and.outline",
