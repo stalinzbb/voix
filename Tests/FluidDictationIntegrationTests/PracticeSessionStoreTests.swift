@@ -106,15 +106,87 @@ final class PracticeSessionStoreTests: XCTestCase {
         XCTAssertTrue(preview.hasSuffix("..."))
     }
 
+    // MARK: - File I/O (real store against a temp directory)
+
+    @MainActor
+    func testSessionsPersistAcrossStoreInstances() throws {
+        let directory = try self.makeTempDirectory()
+        let store = PracticeSessionStore(directory: directory)
+        store.add(self.makeSession(transcript: "persisted"))
+
+        let reloaded = PracticeSessionStore(directory: directory)
+
+        XCTAssertEqual(reloaded.sessions.count, 1)
+        XCTAssertEqual(reloaded.sessions[0].transcript, "persisted")
+    }
+
+    @MainActor
+    func testCapPrunesOldestSessionsNotNewest() throws {
+        let directory = try self.makeTempDirectory()
+        let store = PracticeSessionStore(directory: directory)
+        for index in 0...200 {
+            store.add(self.makeSession(transcript: "session \(index)", metrics: .empty))
+        }
+
+        XCTAssertEqual(store.sessions.count, 200)
+        XCTAssertEqual(store.sessions.first?.transcript, "session 200")
+        XCTAssertEqual(store.sessions.last?.transcript, "session 1")
+    }
+
+    @MainActor
+    func testCorruptFileLoadsEmptyInsteadOfCrashing() throws {
+        let directory = try self.makeTempDirectory()
+        try Data("not json at all".utf8)
+            .write(to: directory.appendingPathComponent("PracticeSessions.json"))
+
+        let store = PracticeSessionStore(directory: directory)
+
+        XCTAssertTrue(store.sessions.isEmpty)
+    }
+
+    @MainActor
+    func testReplaceSwapsProvisionalForFinishedOnDisk() throws {
+        let directory = try self.makeTempDirectory()
+        let store = PracticeSessionStore(directory: directory)
+        let provisional = self.makeSession(transcript: "draft", metrics: .empty)
+        store.add(provisional)
+
+        let finished = PracticeSession(
+            id: provisional.id,
+            date: provisional.date,
+            durationSeconds: provisional.durationSeconds,
+            transcript: provisional.transcript,
+            feedback: "well done",
+            model: "test-model",
+            metrics: .empty
+        )
+        store.replace(finished)
+
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(store.sessions[0].feedback, "well done")
+        XCTAssertEqual(PracticeSessionStore(directory: directory).sessions[0].feedback, "well done")
+    }
+
     // MARK: - Helpers
 
-    private func makeSession(transcript: String = "the plan", duration: Double = 30) -> PracticeSession {
+    private func makeTempDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voix-store-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func makeSession(
+        transcript: String = "the plan",
+        duration: Double = 30,
+        metrics: DeliveryMetrics? = nil
+    ) -> PracticeSession {
         PracticeSession(
             durationSeconds: duration,
             transcript: transcript,
             feedback: "## Core message\nThe plan is ready.",
             model: "test-model",
-            metrics: self.makeMetrics()
+            metrics: metrics ?? self.makeMetrics()
         )
     }
 

@@ -88,7 +88,12 @@ final class PracticeSessionStore: ObservableObject {
 
     private let maximumSessions = 200
 
-    init() {
+    /// Tests pass a temp directory so the real file I/O — cap pruning, atomic
+    /// writes, corrupt-file recovery — is exercised without touching user data.
+    private let overrideDirectory: URL?
+
+    init(directory: URL? = nil) {
+        self.overrideDirectory = directory
         self.load()
     }
 
@@ -119,8 +124,9 @@ final class PracticeSessionStore: ObservableObject {
         self.save()
     }
 
-    func deleteAll() {
-        self.sessions.removeAll()
+    /// Wholesale replacement from a restored backup document.
+    func restore(from sessions: [PracticeSession]) {
+        self.sessions = Array(sessions.prefix(self.maximumSessions))
         self.save()
     }
 
@@ -176,10 +182,15 @@ final class PracticeSessionStore: ObservableObject {
     }
 
     private func storeURL(createIfNeeded: Bool) throws -> URL {
-        guard let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw CocoaError(.fileNoSuchFile)
+        let directory: URL
+        if let overrideDirectory {
+            directory = overrideDirectory
+        } else {
+            guard let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+                throw CocoaError(.fileNoSuchFile)
+            }
+            directory = base.appendingPathComponent(self.appSupportFolder, isDirectory: true)
         }
-        let directory = base.appendingPathComponent(self.appSupportFolder, isDirectory: true)
         if createIfNeeded {
             try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }

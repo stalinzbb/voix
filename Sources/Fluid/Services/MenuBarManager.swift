@@ -503,27 +503,9 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         self.microphoneMenuItem = microphoneMenuItem
         self.microphoneSubmenu = microphoneSubmenu
 
-        // Check for Updates
-        let updateItem = NSMenuItem(
-            title: "Check for Updates...",
-            action: #selector(checkForUpdates(_:)),
-            keyEquivalent: ""
-        )
-        updateItem.target = self
-        menu.addItem(updateItem)
-
-        menu.addItem(.separator())
-
-        let rollbackMenuItem = NSMenuItem(
-            title: "Rollback to Previous Version...",
-            action: #selector(rollbackToPreviousVersion(_:)),
-            keyEquivalent: ""
-        )
-        rollbackMenuItem.target = self
-        rollbackMenuItem.isEnabled = SimpleUpdater.shared.hasRollbackBackup()
-        menu.addItem(rollbackMenuItem)
-        self.rollbackMenuItem = rollbackMenuItem
-
+        // No update items: Voix does not self-update (see AppDelegate), so "Check
+        // for Updates…" could only ever show an error dialog, and the rollback
+        // picker offered upstream FluidVoice releases.
         menu.addItem(.separator())
 
         // Quit
@@ -557,9 +539,6 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         self.statusMenuItem?.title = statusTitle
         self.copyLastTranscriptMenuItem?.isEnabled = self.canCopyLastTranscript
         self.microphoneMenuItem?.isEnabled = true
-
-        // Update rollback availability text
-        self.rollbackMenuItem?.isEnabled = SimpleUpdater.shared.hasRollbackBackup()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
