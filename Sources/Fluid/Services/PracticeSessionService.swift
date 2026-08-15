@@ -46,6 +46,13 @@ final class PracticeSessionService: ObservableObject {
     @Published private(set) var currentSession: PracticeSession?
 
     private var store: PracticeSessionStore { .shared }
+    private var coachingTask: Task<CoachingResult, Error>?
+    private var recordingCapTask: Task<Void, Never>?
+
+    /// ponytail: fixed cap. Parakeet's final transcription pass tops out near
+    /// 24 minutes of audio, so stopping at 20 keeps transcription reliable and
+    /// bounds memory; make it a setting if anyone practices keynotes.
+    private static let maximumRecordingSeconds: Double = 20 * 60
 
     var isRecording: Bool {
         self.phase == .recording
@@ -59,7 +66,11 @@ final class PracticeSessionService: ObservableObject {
     /// Starts capture. Microphone authorization, model warm-up and Bluetooth route
     /// recovery all come free from the inherited ASR stack.
     func startPractice() async {
-        guard self.phase != .recording else { return }
+        // Not just `.recording`: a start while the previous session is still
+        // transcribing or coaching would clobber `phase` and let two pipelines
+        // write over each other. The disabled button already prevents this, but
+        // the guard belongs here, not in the view.
+        guard self.phase != .recording, !self.phase.isBusy else { return }
 
         let asr = AppServices.shared.asr
 
@@ -69,6 +80,14 @@ final class PracticeSessionService: ObservableObject {
         if asr.micStatus == .notDetermined {
             asr.requestMicAccess()
             self.phase = .failed("Grant microphone access, then press record again.")
+            return
+        }
+
+        // Dictation may already own the recorder (hotkey held down right now).
+        // Starting on top of it would steal that audio mid-utterance and the
+        // user's dictation would silently vanish.
+        guard !asr.isRunning else {
+            self.phase = .failed("Another recording is in progress. Finish dictating, then press record again.")
             return
         }
 
@@ -87,12 +106,24 @@ final class PracticeSessionService: ObservableObject {
             asr.isPracticeSessionActive = false
             self.phase = .failed("Could not start recording. Check microphone access and that a speech model is installed.")
             self.recordingStartedAt = nil
+            return
+        }
+
+        // A forgotten recording (user navigated away and moved on) should end in a
+        // saved session, not run until the machine sleeps.
+        self.recordingCapTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.maximumRecordingSeconds))
+            guard !Task.isCancelled else { return }
+            await self?.stopPractice()
         }
     }
 
     /// Stops capture and runs the full transcribe -> analyze -> coach pipeline.
     func stopPractice() async {
         guard self.phase == .recording else { return }
+
+        self.recordingCapTask?.cancel()
+        self.recordingCapTask = nil
 
         let startedAt = self.recordingStartedAt
         self.recordingStartedAt = nil
@@ -121,23 +152,47 @@ final class PracticeSessionService: ObservableObject {
             : (startedAt.map { Date().timeIntervalSince($0) } ?? 0)
 
         self.phase = .coaching
+
+        // Persisted before the LLM call: quitting during a minutes-long coaching
+        // await must not lose the recording's transcript and analysis. The
+        // placeholder error is what a user sees if the app never comes back to
+        // replace it — honest about what happened.
+        let provisional = PracticeSession(
+            durationSeconds: duration,
+            transcript: transcript,
+            feedback: "",
+            model: "",
+            coachingError: "Coaching did not complete.",
+            metrics: metrics
+        )
+        self.store.add(provisional)
+
         var feedback = ""
         var model = ""
         var coachingError: String?
+        let task = Task { try await Self.requestCoaching(transcript: transcript, metrics: metrics) }
+        self.coachingTask = task
         do {
-            let result = try await Self.requestCoaching(transcript: transcript, metrics: metrics)
+            let result = try await task.value
             feedback = result.text
             model = result.model
         } catch {
             // The measurements are the durable part; keep the session either way.
-            coachingError = Self.describe(error)
-            DebugLogger.shared.error(
-                "Practice coaching failed: \(error.localizedDescription)",
-                source: "PracticeSessionService"
-            )
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                coachingError = "Coaching canceled."
+            } else {
+                coachingError = Self.describe(error)
+                DebugLogger.shared.error(
+                    "Practice coaching failed: \(error.localizedDescription)",
+                    source: "PracticeSessionService"
+                )
+            }
         }
+        self.coachingTask = nil
 
         let session = PracticeSession(
+            id: provisional.id,
+            date: provisional.date,
             durationSeconds: duration,
             transcript: transcript,
             feedback: feedback,
@@ -145,9 +200,15 @@ final class PracticeSessionService: ObservableObject {
             coachingError: coachingError,
             metrics: metrics
         )
-        self.store.add(session)
+        self.store.replace(session)
         self.currentSession = session
         self.phase = .done
+    }
+
+    /// Abandons the in-flight LLM call. The session survives — it was persisted
+    /// before coaching started — with a "canceled" note in place of feedback.
+    func cancelCoaching() {
+        self.coachingTask?.cancel()
     }
 
     /// Clears the finished session so the view returns to its resting state.
@@ -186,11 +247,14 @@ final class PracticeSessionService: ObservableObject {
 
     enum CoachingError: LocalizedError {
         case exhaustedByReasoning
+        case noSpeechDetected
 
         var errorDescription: String? {
             switch self {
             case .exhaustedByReasoning:
                 "The model used its entire token budget reasoning and never wrote an answer. Try a non-reasoning model, or a shorter recording."
+            case .noSpeechDetected:
+                "No speech was detected in the recording, so there is nothing to coach."
             }
         }
     }
@@ -205,8 +269,10 @@ final class PracticeSessionService: ObservableObject {
         metrics: DeliveryMetrics
     ) async throws -> CoachingResult {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A silent recording is not an AI failure; reporting it as "AI returned an
+        // empty response" sends the user to provider settings for a mic problem.
         guard !trimmed.isEmpty else {
-            throw AIProcessingError.emptyResponse
+            throw CoachingError.noSpeechDetected
         }
 
         let settings = SettingsStore.shared
@@ -256,6 +322,10 @@ final class PracticeSessionService: ObservableObject {
         // headroom for models that think first.
         config.timeoutSeconds = 180
         config.maxTokens = 16_000
+        // One attempt only. The client default of 3 retries × 180s timeout means a
+        // dead endpoint keeps the session in "Coaching…" for up to nine minutes;
+        // a user retries a failed coaching run by pressing record again.
+        config.maxRetries = 1
 
         let response = try await LLMClient.shared.call(config)
         guard !response.content.isEmpty else {
