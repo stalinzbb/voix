@@ -1739,10 +1739,15 @@ final class ASRService: ObservableObject {
             let textWithoutFillers = forPracticeSession
                 ? result.text
                 : ASRService.removeFillerWords(result.text)
+            // Practice keeps custom-dictionary corrections (they fix ASR mishearings
+            // of names and jargon, improving what the coach reads) but skips
+            // spoken-punctuation rewriting: a practice speech is spoken prose, and
+            // turning a spoken "period" into "." would rewrite what was actually
+            // said — and shift the word count the pace metrics are computed from.
             let dictionaryText = useDictionaryTrainingPath
                 ? textWithoutFillers
                 : ASRService.applyCustomDictionary(textWithoutFillers)
-            let outputText = useDictionaryTrainingPath
+            let outputText = (useDictionaryTrainingPath || forPracticeSession)
                 ? dictionaryText
                 : ASRService.applySpokenPunctuationFormatting(dictionaryText)
             if !useDictionaryTrainingPath {
