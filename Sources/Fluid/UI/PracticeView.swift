@@ -278,7 +278,9 @@ struct PracticeView: View {
     // MARK: - Contours
 
     private struct ContourPoint: Identifiable {
-        let id = UUID()
+        /// The time offset is unique within a contour and stable across renders —
+        /// a fresh UUID per body evaluation defeated ForEach diffing.
+        var id: Double { self.time }
         let time: Double
         let value: Double
         /// Index of the contiguous voiced run this point belongs to. Charting each
@@ -515,14 +517,9 @@ struct PracticeView: View {
                     .font(.callout)
                     .lineLimit(2)
 
-                Text(
-                    "\(session.relativeTimeString) · \(session.formattedDuration) · "
-                        + "\(Int(session.metrics.wordsPerMinute.rounded())) WPM · "
-                        + "\(session.metrics.pauseCount) pauses · "
-                        + String(format: "%.1f fillers/min", session.metrics.fillersPerMinute)
-                )
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+                Text("\(session.relativeTimeString) · \(session.formattedDuration) · " + Self.rowMetricsSummary(session.metrics))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
 
             Spacer()
@@ -536,6 +533,17 @@ struct PracticeView: View {
             .foregroundStyle(.secondary)
         }
         .padding(.vertical, 8)
+    }
+
+    /// The current-session view refuses to present numbers from an unreliable
+    /// recording as measurements; the history row must hold the same line rather
+    /// than quietly rendering "0 WPM · 0 pauses" for the recordings the quality
+    /// gate rejected.
+    private static func rowMetricsSummary(_ metrics: DeliveryMetrics) -> String {
+        guard metrics.quality.isReliable else { return "delivery not measured — unreliable recording" }
+        return "\(Int(metrics.wordsPerMinute.rounded())) WPM · "
+            + "\(metrics.pauseCount) pauses · "
+            + String(format: "%.1f fillers/min", metrics.fillersPerMinute)
     }
 }
 
