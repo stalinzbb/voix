@@ -204,6 +204,7 @@ RELEASE_NOTES_*
 docs/*
 !docs/MISSION.md
 !docs/BRANCHING.md
+!docs/POST-V1-FIXES.md
 
 
 .agent/
